@@ -1,0 +1,82 @@
+#include <iostream>
+#include <vector>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+
+bool is_prime(int num) {
+    if (num < 2) {
+        return false;
+    }
+    for (int i = 2; i * i <= num; ++i) {
+        if (num % i == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void find_primes(int start, int end, int write_fd) {
+    for (int i = start; i <= end; ++i) {
+        if (is_prime(i)) {
+            write(write_fd, &i, sizeof(i));
+        }
+    }
+    close(write_fd);
+}
+
+int main() {
+    const int num_processes = 10;
+    const int range_size = 1000;
+
+    int pipes[num_processes][2];
+
+    // Create pipes
+    for (int i = 0; i < num_processes; ++i) {
+        if (pipe(pipes[i]) == -1) {
+            perror("pipe");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    // Create processes
+    for (int i = 0; i < num_processes; ++i) {
+        pid_t pid = fork();
+        if (pid == -1) {
+            perror("fork");
+            exit(EXIT_FAILURE);
+        } else if (pid == 0) {
+            // Child process
+            close(pipes[i][0]); // Close unused read end
+            find_primes(i * range_size + 1, (i + 1) * range_size, pipes[i][1]);
+            exit(EXIT_SUCCESS);
+        } else {
+            // Parent process
+            close(pipes[i][1]); // Close unused write end
+        }
+    }
+
+    // Read primes from child processes
+    std::vector<int> primes;
+    for (int i = 0; i < num_processes; ++i) {
+        int prime;
+        while (read(pipes[i][0], &prime, sizeof(prime)) > 0) {
+            primes.push_back(prime);
+        }
+        close(pipes[i][0]);
+    }
+
+    // Wait for all child processes to finish
+    for (int i = 0; i < num_processes; ++i) {
+        wait(NULL);
+    }
+
+    // Display primes
+    std::cout << "Prime numbers up to 10,000: ";
+    for (int prime : primes) {
+        std::cout << prime << " ";
+    }
+    std::cout << std::endl;
+
+    return 0;
+}
