@@ -1,0 +1,79 @@
+#include <iostream>
+#include <vector>
+#include <windows.h>
+
+bool is_prime(int num) {
+    if (num < 2) {
+        return false;
+    }
+    for (int i = 2; i * i <= num; ++i) {
+        if (num % i == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void find_primes(int start, int end, HANDLE write_handle) {
+    for (int i = start; i <= end; ++i) {
+        if (is_prime(i)) {
+            DWORD bytes_written;
+            WriteFile(write_handle, &i, sizeof(i), &bytes_written, NULL);
+        }
+    }
+    CloseHandle(write_handle);
+}
+
+int main() {
+    const int num_processes = 10;
+    const int range_size = 1000;
+
+    HANDLE pipes[num_processes][2];
+
+    // Create pipes
+    for (int i = 0; i < num_processes; ++i) {
+        SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
+        if (!CreatePipe(&pipes[i][0], &pipes[i][1], &sa, 0)) {
+            std::cerr << "CreatePipe failed" << std::endl;
+            return 1;
+        }
+    }
+
+    // Create processes
+    for (int i = 0; i < num_processes; ++i) {
+        STARTUPINFO si = { sizeof(STARTUPINFO) };
+        PROCESS_INFORMATION pi;
+        ZeroMemory(&si, sizeof(si));
+        si.cb = sizeof(si);
+        ZeroMemory(&pi, sizeof(pi));
+
+        // Child process
+        if (CreateProcess(NULL, NULL, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
+            find_primes(i * range_size + 1, (i + 1) * range_size, pipes[i][1]);
+            CloseHandle(pipes[i][0]);
+        } else {
+            std::cerr << "CreateProcess failed" << std::endl;
+            return 1;
+        }
+    }
+
+    // Read primes from child processes
+    std::vector<int> primes;
+    for (int i = 0; i < num_processes; ++i) {
+        int prime;
+        DWORD bytes_read;
+        while (ReadFile(pipes[i][0], &prime, sizeof(prime), &bytes_read, NULL) && bytes_read > 0) {
+            primes.push_back(prime);
+        }
+        CloseHandle(pipes[i][0]);
+    }
+
+    // Display primes
+    std::cout << "Prime numbers up to 10,000: ";
+    for (int prime : primes) {
+        std::cout << prime << " ";
+    }
+    std::cout << std::endl;
+
+    return 0;
+}
